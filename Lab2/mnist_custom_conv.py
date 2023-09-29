@@ -51,69 +51,60 @@ class myLinear(nn.Module):
     
     def forward(self, input):
         return myLinearFunction.apply(input, self.weight, self.bias)
+import torch
+
+
 
 class myConv2dFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0):
+    def forward(ctx, input, weight, bias=None):
         ctx.save_for_backward(input, weight, bias)
-        ctx.stride = stride
-        ctx.padding = padding
-
-        output = torch.nn.functional.conv2d(input, weight, bias, stride=stride, padding=padding)
-
+        output = F.conv2d(input, weight, bias, stride=1, padding=0)  # You can specify other convolution parameters here
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         input, weight, bias = ctx.saved_tensors
-        stride = ctx.stride
-        padding = ctx.padding
-
-        grad_input = torch.nn.grad.conv2d_input(input.shape, weight, grad_output, stride=stride, padding=padding)
-        grad_weight = torch.nn.grad.conv2d_weight(input, weight.shape, grad_output, stride=stride, padding=padding)
-        grad_bias = torch.nn.grad.conv2d_bias(grad_output)
-
-        return grad_input, grad_weight, grad_bias, None, None
-
-
+        grad_input = torch.nn.grad.conv2d_input(input.shape, weight, grad_output, stride=1, padding=0)
+        grad_weight = torch.nn.grad.conv2d_weight(input, weight.shape, grad_output, stride=1, padding=0)
+        grad_bias = None
+        if bias is not None:
+            grad_bias = grad_output.sum((0, 2, 3))  # Sum gradient over mini-batches and spatial dimensions
+        return grad_input, grad_weight, grad_bias
 class myConv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, bias=True):
         super(myConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-
+        self.bias = bias
         self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, kernel_size, kernel_size))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
             self.register_parameter('bias', None)
-        
         self.reset_parameters()
-        
+
     def reset_parameters(self):
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
-        
-    def forward(self, input):
-        return myConv2dFunction.apply(input, self.weight, self.bias, self.stride, self.padding)
 
+    def forward(self, input):
+        return myConv2dFunction.apply(input, self.weight, self.bias)
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
+        self.conv1 = myConv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
         self.dropout1 = nn.Dropout2d(0.25)
         self.dropout2 = nn.Dropout2d(0.5)
-        self.fc1 = myLinear(9216, 128)
+        self.fc1 = nn.Linear(9216, 128)
         # self.fc2 = nn.Linear(128, 10)
-        self.fc2 = myLinear(128, 10)
+        self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
